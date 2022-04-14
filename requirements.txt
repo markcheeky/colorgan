@@ -8,3 +8,7 @@ pooch
 requests
 Pillow
 grequests
+pydot
+black
+flake8
+mypy
