@@ -7,8 +7,9 @@ ipykernel
 pooch
 requests
 Pillow
-grequests
 pydot
+tqdm
+types-requests
 black
 flake8
 mypy
