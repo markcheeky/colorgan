@@ -1,3 +1,7 @@
 .history
 open_images_v2*
 *.pyc
+data
+colorgan/data
+colorgan/log
+colorgan/*.png
