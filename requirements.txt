@@ -13,3 +13,4 @@ types-requests
 black
 flake8
 mypy
+wandb
