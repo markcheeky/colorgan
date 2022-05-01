@@ -7,7 +7,6 @@ import numpy as np
 import PIL.Image
 import requests
 import tensorflow as tf
-from matplotlib.image import imread
 from requests import Response
 from tensorflow.data import Dataset
 from utils import IMG_EXTENSIONS, chunkify
@@ -81,7 +80,7 @@ def download_imgs(
                     yield img.result()
 
 
-def get_xy_for_baseline(img: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+def get_xy(img: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
     x = tf.image.rgb_to_grayscale(img)
     x = tf.repeat(x, 3, axis=-1)
     x = tf.cast(x, tf.float32) / 127.5 - 1
@@ -116,7 +115,7 @@ def extract_patches(
     return Dataset.from_tensor_slices(patches)
 
 
-def url_dataset_for_baseline(
+def url_dataset(
     image_ids: Collection[str],
     urls: Collection[str],
     augment: bool = False,
@@ -151,7 +150,7 @@ def url_dataset_for_baseline(
         ds = ds.map(lambda img: tf.image.random_brightness(img, max_delta=0.15))
         ds = ds.map(lambda img: tf.image.random_saturation(img, lower=0.8, upper=1.2))
 
-    ds = ds.map(get_xy_for_baseline)
+    ds = ds.map(get_xy)
 
     return ds
 
@@ -202,7 +201,7 @@ def read_imgs_from_folder(
                     yield img.result()
 
 
-def folder_dataset_for_baseline(
+def folder_dataset(
     path: str,
     augment: bool = False,
     img_size: Tuple[int, int] = (512, 512),
@@ -228,7 +227,7 @@ def folder_dataset_for_baseline(
         ds = ds.map(lambda img: tf.image.random_brightness(img, max_delta=0.15))
         ds = ds.map(lambda img: tf.image.random_saturation(img, lower=0.8, upper=1.2))
 
-    ds = ds.map(get_xy_for_baseline)
+    ds = ds.map(get_xy)
 
     return ds
 
@@ -263,6 +262,6 @@ def folder_generator_dataset_for_baseline(
         ds = ds.map(lambda img: tf.image.random_brightness(img, max_delta=0.15))
         ds = ds.map(lambda img: tf.image.random_saturation(img, lower=0.8, upper=1.2))
 
-    ds = ds.map(get_xy_for_baseline)
+    ds = ds.map(get_xy)
 
     return ds

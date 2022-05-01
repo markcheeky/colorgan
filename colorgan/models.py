@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+import tensorflow as tf
 from tensorflow.keras.layers import (
     Activation,
     BatchNormalization,
@@ -13,6 +14,7 @@ from tensorflow.keras.layers import (
     Layer,
     LeakyReLU,
 )
+from tensorflow.keras.losses import MeanAbsoluteError, Reduction
 from tensorflow.keras.models import Model, Sequential
 
 
@@ -129,15 +131,86 @@ def get_discriminator(
     stride: int = 2,
 ) -> Model:
 
-    layers = Sequential()
-    layers.add(Input(input_shape))
+    input_bw = Input(input_shape, name="bw")
+    input_colorized = Input(input_shape, name="colorized")
+
+    x = Concatenate()([input_bw, input_colorized])
 
     for i, kernel_num in enumerate(kernel_nums):
         not_first = i != 0
         block = get_discriminator_block(kernel_num, kernel_size, stride, batch_norm=not_first)
-        layers.add(block)
+        x = block(x)
 
-    layers.add(GlobalAveragePooling2D())
-    layers.add(Dense(1, activation="sigmoid"))
+    x = GlobalAveragePooling2D()(x)
+    x = Dense(1, activation="sigmoid")(x)
 
-    return layers
+    return Model(inputs=[input_bw, input_colorized], outputs=x)
+
+
+class ColorGan(Model):
+    def __init__(self, g: Model, d: Model, weight_mae_loss: float = 100.0):
+        super().__init__()
+
+        self.g = g
+        self.d = d
+
+        self.mae_loss = MeanAbsoluteError(reduction=Reduction.SUM_OVER_BATCH_SIZE)
+        self.weight_mae_loss = weight_mae_loss
+
+    def compile(self, d_optimizer, g_optimizer, end_loss):
+        super().compile()
+        self.d_optimizer = d_optimizer
+        self.g_optimizer = g_optimizer
+        self.end_loss = end_loss
+
+    def g_loss(
+        self,
+        fakes: tf.Tensor,
+        origs: tf.Tensor,
+        d_preds: tf.Tensor,
+    ) -> tf.Tensor:
+        from_mae = self.mae_loss(origs, fakes)
+        from_gan = self.end_loss(tf.ones_like(d_preds), d_preds)
+        loss = from_mae * self.weight_mae_loss + from_gan
+        return loss
+
+    def d_loss(
+        self,
+        preds_on_fakes: tf.Tensor,
+        preds_on_reals: tf.Tensor,
+    ) -> tf.Tensor:
+        loss_on_fakes = self.end_loss(tf.zeros_like(preds_on_fakes), preds_on_fakes)
+        loss_on_reals = self.end_loss(tf.ones_like(preds_on_reals), preds_on_reals)
+        loss = loss_on_fakes + loss_on_reals
+        return loss
+
+    def train_step(
+        self,
+        data: Tuple[tf.Tensor, tf.Tensor],
+    ) -> None:
+        bw, reals = data
+
+        # Imo it backpropagates over the discriminator twice, while I think it
+        # could be done using one pass, but discriminator is around 15x smaller
+        # than generator so it's not worth optimizing
+
+        with tf.GradientTape() as g_tape, tf.GradientTape() as d_tape:
+            fakes = self.g(bw, training=True)
+            d_preds_fakes = self.d([bw, fakes], training=True)
+            d_preds_reals = self.d([bw, reals], training=True)
+
+            g_loss = self.g_loss(fakes, reals, d_preds_fakes)
+            d_loss = self.d_loss(d_preds_fakes, d_preds_reals)
+
+            g_grads = g_tape.gradient(g_loss, self.g.trainable_variables)
+            d_grads = d_tape.gradient(d_loss, self.d.trainable_variables)
+
+        self.g_optimizer.apply_gradients(zip(g_grads, self.g.trainable_variables))
+        self.d_optimizer.apply_gradients(zip(d_grads, self.d.trainable_variables))
+
+        return {"d_loss": d_loss, "g_loss": g_loss}
+
+    def call(self, bw: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+        colorized = self.g(bw)
+        scores = self.d([bw, colorized])
+        return colorized, scores
