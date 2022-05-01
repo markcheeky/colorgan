@@ -154,7 +154,6 @@ class ColorGan(Model):
         self.g = g
         self.d = d
 
-        self.mae_loss = MeanAbsoluteError(reduction=Reduction.SUM_OVER_BATCH_SIZE)
         self.weight_mae_loss = weight_mae_loss
 
     def compile(self, d_optimizer, g_optimizer, end_loss):
@@ -169,7 +168,7 @@ class ColorGan(Model):
         origs: tf.Tensor,
         d_preds: tf.Tensor,
     ) -> tf.Tensor:
-        from_mae = self.mae_loss(origs, fakes)
+        from_mae = tf.reduce_mean(tf.abs(origs - fakes))
         from_gan = self.end_loss(tf.ones_like(d_preds), d_preds)
         loss = from_mae * self.weight_mae_loss + from_gan
         return loss

@@ -219,15 +219,16 @@ def folder_dataset(
         shuffle=True,
         crop_to_aspect_ratio=True,
         seed=None,
+        color_mode="rgb",
     )
 
-    ds = ds.prefetch(prefetch)
     if augment:
         ds = ds.map(lambda img: tf.image.random_flip_left_right(img))
         ds = ds.map(lambda img: tf.image.random_brightness(img, max_delta=0.15))
         ds = ds.map(lambda img: tf.image.random_saturation(img, lower=0.8, upper=1.2))
 
     ds = ds.map(get_xy)
+    ds = ds.prefetch(prefetch)
 
     return ds
 
