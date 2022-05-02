@@ -15,6 +15,7 @@ class LogPredictionsCallback(tf.keras.callbacks.Callback):
         self.every_n_batch = every_n_batch
 
     def on_train_batch_end(self, batch_idx: int, logs=None) -> None:
+        wandb.log(logs)
 
         if batch_idx % self.every_n_batch != 0:
             return

@@ -16,6 +16,7 @@ from tensorflow.keras.layers import (
 )
 from tensorflow.keras.losses import MeanAbsoluteError, Reduction
 from tensorflow.keras.models import Model, Sequential
+from tensorflow_addons.layers import SpectralNormalization
 
 
 def get_unet_encoder_block(
@@ -117,7 +118,7 @@ def get_discriminator_block(
 
     return Sequential(
         [
-            Conv2D(kernel_num, kernel_size, padding="same", strides=stride),
+            SpectralNormalization(Conv2D(kernel_num, kernel_size, padding="same", strides=stride)),
             BatchNormalization() if batch_norm else Layer(),
             LeakyReLU(alpha=0.2),
         ]
@@ -126,7 +127,7 @@ def get_discriminator_block(
 
 def get_discriminator(
     input_shape: Tuple[Optional[int], ...] = (None, None, 3),
-    kernel_nums: Tuple[int, ...] = (64, 128, 256, 512),
+    kernel_nums: Tuple[int, ...] = (64, 64, 128, 128, 256, 256, 512),
     kernel_size: Tuple[int, ...] = (4, 4),
     stride: int = 2,
 ) -> Model:
@@ -148,7 +149,7 @@ def get_discriminator(
 
 
 class ColorGan(Model):
-    def __init__(self, g: Model, d: Model, weight_mae_loss: float = 100.0):
+    def __init__(self, g: Model, d: Model, weight_mae_loss: float = 50.0):
         super().__init__()
 
         self.g = g
@@ -171,7 +172,7 @@ class ColorGan(Model):
         from_mae = tf.reduce_mean(tf.abs(origs - fakes))
         from_gan = self.end_loss(tf.ones_like(d_preds), d_preds)
         loss = from_mae * self.weight_mae_loss + from_gan
-        return loss
+        return loss, from_mae, from_gan
 
     def d_loss(
         self,
@@ -181,7 +182,7 @@ class ColorGan(Model):
         loss_on_fakes = self.end_loss(tf.zeros_like(preds_on_fakes), preds_on_fakes)
         loss_on_reals = self.end_loss(tf.ones_like(preds_on_reals), preds_on_reals)
         loss = loss_on_fakes + loss_on_reals
-        return loss
+        return loss, loss_on_fakes, loss_on_reals
 
     def train_step(
         self,
@@ -198,8 +199,8 @@ class ColorGan(Model):
             d_preds_fakes = self.d([bw, fakes], training=True)
             d_preds_reals = self.d([bw, reals], training=True)
 
-            g_loss = self.g_loss(fakes, reals, d_preds_fakes)
-            d_loss = self.d_loss(d_preds_fakes, d_preds_reals)
+            g_loss, g_loss_from_mae, g_loss_from_gan = self.g_loss(fakes, reals, d_preds_fakes)
+            d_loss, d_loss_on_fakes, d_loss_on_reals = self.d_loss(d_preds_fakes, d_preds_reals)
 
             g_grads = g_tape.gradient(g_loss, self.g.trainable_variables)
             d_grads = d_tape.gradient(d_loss, self.d.trainable_variables)
@@ -207,7 +208,14 @@ class ColorGan(Model):
         self.g_optimizer.apply_gradients(zip(g_grads, self.g.trainable_variables))
         self.d_optimizer.apply_gradients(zip(d_grads, self.d.trainable_variables))
 
-        return {"d_loss": d_loss, "g_loss": g_loss}
+        return {
+            "d_loss": d_loss,
+            "g_loss": g_loss,
+            "g_loss_from_mae": g_loss_from_mae,
+            "g_loss_from_gan": g_loss_from_gan,
+            "d_loss_on_fakes": d_loss_on_fakes,
+            "d_loss_on_reals": d_loss_on_reals,
+        }
 
     def call(self, bw: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
         colorized = self.g(bw)
