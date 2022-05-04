@@ -7,17 +7,21 @@ class LogPredictionsCallback(tf.keras.callbacks.Callback):
     def __init__(
         self,
         dataset: tf.data.Dataset,
-        every_n_batch: int,
+        vis_every_n_batch: int,
+        loss_every_n_batch: int,
         name: str = "visualization",
     ) -> None:
         self.name = name
         self.dataset = dataset
-        self.every_n_batch = every_n_batch
+        self.loss_every_n_batch = loss_every_n_batch
+        self.vis_every_n_batch = vis_every_n_batch
 
     def on_train_batch_end(self, batch_idx: int, logs=None) -> None:
-        wandb.log(logs)
 
-        if batch_idx % self.every_n_batch != 0:
+        if batch_idx % self.loss_every_n_batch == 0:
+            wandb.log(logs)
+
+        if batch_idx % self.vis_every_n_batch != 0:
             return
 
         outputs = self.model.predict(self.dataset)

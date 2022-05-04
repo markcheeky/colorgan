@@ -1,6 +1,7 @@
 from typing import List, Optional, Tuple
 
 import tensorflow as tf
+import tensorflow_io as tfio
 from tensorflow.keras.layers import (
     Activation,
     BatchNormalization,
@@ -17,6 +18,7 @@ from tensorflow.keras.layers import (
 from tensorflow.keras.losses import MeanAbsoluteError, Reduction
 from tensorflow.keras.models import Model, Sequential
 from tensorflow_addons.layers import SpectralNormalization
+from tensorflow_io.python.api.experimental.color import rgb_to_lab
 
 
 def get_unet_encoder_block(
@@ -149,13 +151,14 @@ def get_discriminator(
 
 
 class ColorGan(Model):
-    def __init__(self, g: Model, d: Model, weight_mae_loss: float = 50.0):
+    def __init__(self, g: Model, d: Model, weight_mae_loss: float = 50.0, use_mae=True):
         super().__init__()
 
         self.g = g
         self.d = d
 
         self.weight_mae_loss = weight_mae_loss
+        self.use_mae = use_mae
 
     def compile(self, d_optimizer, g_optimizer, end_loss):
         super().compile()
@@ -167,10 +170,19 @@ class ColorGan(Model):
         self,
         fakes: tf.Tensor,
         origs: tf.Tensor,
-        d_preds: tf.Tensor,
+        d_preds_on_fakes: tf.Tensor,
     ) -> tf.Tensor:
-        from_mae = tf.reduce_mean(tf.abs(origs - fakes))
-        from_gan = self.end_loss(tf.ones_like(d_preds), d_preds)
+
+        # images are from -1 to 1, but the function needs them from 0 to 1
+        # lab_fakes = tf.clip_by_value(rgb_to_lab(fakes * 0.5 + 0.5)[:, :, :, 1:], -127, 127) / 255
+        # lab_origs = tf.clip_by_value(rgb_to_lab(origs * 0.5 + 0.5)[:, :, :, 1:], -127, 127) / 255
+
+        if self.use_mae:
+            # from_mae = tf.reduce_mean(tf.abs(lab_fakes - lab_origs))
+            from_mae = tf.reduce_mean(tf.abs(fakes - origs))
+        else:
+            from_mae = tf.zeros(1)
+        from_gan = self.end_loss(tf.ones_like(d_preds_on_fakes), d_preds_on_fakes)
         loss = from_mae * self.weight_mae_loss + from_gan
         return loss, from_mae, from_gan
 
