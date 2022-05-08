@@ -7,6 +7,7 @@ import numpy as np
 import PIL.Image
 import requests
 import tensorflow as tf
+import tensorflow_io as tfio
 from requests import Response
 from tensorflow.data import Dataset
 from utils import IMG_EXTENSIONS, chunkify
@@ -80,12 +81,23 @@ def download_imgs(
                     yield img.result()
 
 
-def get_xy(img: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
-    x = tf.image.rgb_to_grayscale(img)
+def get_xy(imgs: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    x = tf.image.rgb_to_grayscale(imgs)
     x = tf.repeat(x, 3, axis=-1)
     x = tf.cast(x, tf.float32) / 127.5 - 1
-    y = tf.cast(img, tf.float32) / 127.5 - 1
+    y = tf.cast(imgs, tf.float32) / 127.5 - 1
     return x, y
+
+
+def get_xy_lab(imgs: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    # rgb_to_lab expects input to be between 0 and 1
+    imgs = tf.cast(imgs, tf.float32) / 255.0
+    lab = tfio.experimental.color.rgb_to_lab(imgs)
+    # l is from 0 to 100 in lab, scale it to -1 to 1
+    l = tf.expand_dims(lab[:, :, :, 0], -1) / 50 - 1
+    # ab are usually between -100 and 100 in lab
+    ab = lab[:, :, :, 1:] / 110
+    return l, ab
 
 
 def preprocess(inputs: np.ndarray) -> np.ndarray:
@@ -94,6 +106,14 @@ def preprocess(inputs: np.ndarray) -> np.ndarray:
 
 def postprocess(outputs: np.ndarray) -> np.ndarray:
     return ((outputs + 1) * 127.5).astype(np.uint8)
+
+
+def postprocess_lab(l: tf.Tensor, ab: tf.Tensor) -> np.ndarray:
+    l = (l + 1) * 50
+    ab = ab * 110
+    imgs = tf.concat([l, ab], axis=-1)
+    rgb_float = tfio.experimental.color.lab_to_rgb(imgs)
+    return tf.cast(rgb_float * 255, tf.uint8).numpy()
 
 
 def extract_patches(
@@ -208,6 +228,7 @@ def folder_dataset(
     batch_size: int = 1,
     prefetch: int = 0,
     seed: int = 42,
+    use_lab: bool = False,
 ):
     tf.random.set_seed(seed)
     ds = tf.keras.preprocessing.image_dataset_from_directory(
@@ -227,7 +248,10 @@ def folder_dataset(
         ds = ds.map(lambda img: tf.image.random_brightness(img, max_delta=0.15))
         ds = ds.map(lambda img: tf.image.random_saturation(img, lower=0.8, upper=1.2))
 
-    ds = ds.map(get_xy)
+    if use_lab:
+        ds = ds.map(get_xy_lab)
+    else:
+        ds = ds.map(get_xy)
     ds = ds.prefetch(prefetch)
 
     return ds
